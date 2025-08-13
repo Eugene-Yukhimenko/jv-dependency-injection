@@ -6,6 +6,16 @@ import java.util.Map;
 
 public class Injector {
     private static final Injector injector = new Injector();
+
+    private static final Map<Class<?>, Class<?>> interfaceToImpl = Map.of(
+            mate.academy.service.FileReaderService.class, mate.academy.service
+                    .impl.FileReaderServiceImpl.class,
+            mate.academy.service.ProductParser.class, mate.academy.service
+                    .impl.ProductParserImpl.class,
+            mate.academy.service.ProductService.class, mate.academy.service
+                    .impl.ProductServiceImpl.class
+    );
+
     private final Map<Class<?>, Object> instances = new HashMap<>();
 
     private Injector() {
@@ -16,7 +26,15 @@ public class Injector {
     }
 
     public Object getInstance(Class<?> interfaceClazz) {
-        Class<?> implClazz = findImplementation(interfaceClazz);
+        if (instances.containsKey(interfaceClazz)) {
+            return instances.get(interfaceClazz);
+        }
+
+        Class<?> implClazz = interfaceToImpl.get(interfaceClazz);
+        if (implClazz == null) {
+            throw new RuntimeException("No implementation found for: "
+                    + interfaceClazz.getName());
+        }
 
         if (!implClazz.isAnnotationPresent(Component.class)) {
             throw new RuntimeException("Missing @Component annotation on class: "
@@ -25,46 +43,29 @@ public class Injector {
 
         Object instance = createInstance(implClazz);
         injectDependencies(instance, implClazz);
+        instances.put(interfaceClazz, instance);
         return instance;
     }
 
-    private Class<?> findImplementation(Class<?> interfaceClazz) {
-        if (interfaceClazz.equals(mate.academy.service.ProductParser.class)) {
-            return mate.academy.service.impl.ProductParserImpl.class;
-        } else if (interfaceClazz.equals(mate.academy.service.ProductService.class)) {
-            return mate.academy.service.impl.ProductServiceImpl.class;
-        } else if (interfaceClazz.equals(mate.academy.service.FileReaderService.class)) {
-            return mate.academy.service.impl.FileReaderServiceImpl.class;
-        } else {
-            throw new RuntimeException("No implementation found for: " + interfaceClazz.getName());
-        }
-    }
-
     private Object createInstance(Class<?> clazz) {
-        if (instances.containsKey(clazz)) {
-            return instances.get(clazz);
-        }
-
         try {
-            Object instance = clazz.getDeclaredConstructor().newInstance();
-            instances.put(clazz, instance);
-            return instance;
+            return clazz.getDeclaredConstructor().newInstance();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create instance of: " + clazz.getName(), e);
+            throw new RuntimeException("Can't create instance of: "
+                    + clazz.getName(), e);
         }
     }
 
     private void injectDependencies(Object instance, Class<?> clazz) {
         for (Field field : clazz.getDeclaredFields()) {
             if (field.isAnnotationPresent(Inject.class)) {
-                Class<?> fieldType = field.getType();
-                Object dependency = getInstance(fieldType);
+                Object dependency = getInstance(field.getType());
                 field.setAccessible(true);
                 try {
                     field.set(instance, dependency);
                 } catch (IllegalAccessException e) {
-                    throw new RuntimeException("Failed to inject dependency: "
-                            + fieldType.getName(), e);
+                    throw new RuntimeException("Can't inject dependency: "
+                            + field.getName(), e);
                 }
             }
         }
